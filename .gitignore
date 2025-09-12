@@ -1,0 +1,4 @@
+.env
+woo_idmap.json
+woo_meta.json
+woo.faiss
