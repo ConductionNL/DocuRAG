@@ -19,9 +19,12 @@ pip install ipywidgets
 ```
 
 ### Environment
-For LLM calls you need a Fireworks API key:
-```bash
-export FIREWORKS_API_KEY=your_key_here
+Set the folling in your environent
+```
+SOLR_RAG_URL=
+SOLR_USER=
+SOLR_PASSWORD=
+export FIREWORKS_API_KEY=
 ```
 
 ### Data
