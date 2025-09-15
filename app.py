@@ -2,6 +2,15 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict
 from RAG import rag
+import logging
+import os
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="DocuRAG")
 
@@ -21,5 +30,6 @@ def process_endpoint(payload: In):
         result = rag(payload.text)
         return Out(answer=result["answer"], sources=result["sources"])
     except Exception as e:
+        logger.exception("/process failed: %s", e)
         # make failures predictable for clients
         raise HTTPException(status_code=400, detail=str(e))
