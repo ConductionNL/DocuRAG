@@ -5,3 +5,4 @@ pysolr
 fireworks-ai
 pydantic>=2
 pyyaml
+fastapi
