@@ -1,5 +1,10 @@
 from embeddings import search_solr
-from llm import load_llm_message, get_llm_response, parse_llm_response
+from llm import (
+    load_llm_message,
+    get_llm_response,
+    parse_llm_response,
+    astream_llm_ndjson,
+)
 import os
 import pysolr
 from dotenv import load_dotenv
@@ -53,6 +58,25 @@ def rag(user_input: str) -> str:
     logger.info("Retrieved %s docs from Solr", len(retrieved_docs))
     parsed_llm_response = augmented_generation(retrieved_docs, user_input)
     return parsed_llm_response
+
+
+async def rag_stream(user_input: str):
+    """Async generator that streams LLM output as NDJSON lines.
+
+    Retrieval is performed synchronously first, then we stream the LLM output
+    for the composed prompt.
+    """
+    solr_rag = pysolr.Solr(
+        SOLR_RAG_URL, always_commit=True, timeout=10, auth=(USERNAME, PASSWORD)
+    )
+    logger.info("Searching Solr for top_k=%s", TOP_K)
+    retrieved_docs = search_solr(
+        user_input, solr_rag, top_k=TOP_K, model_name=MODEL_NAME
+    )
+    logger.info("Retrieved %s docs from Solr", len(retrieved_docs))
+    llm_message = load_llm_message(retrieved_docs, user_input)
+    async for line in astream_llm_ndjson(llm_message):
+        yield line
 
 
 if __name__ == "__main__":

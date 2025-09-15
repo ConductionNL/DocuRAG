@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict
-from RAG import rag
+from RAG import rag, rag_stream
 import logging
 import os
 
@@ -32,4 +33,20 @@ def process_endpoint(payload: In):
     except Exception as e:
         logger.exception("/process failed: %s", e)
         # make failures predictable for clients
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/process_stream")
+async def process_stream_endpoint(payload: In):
+    try:
+        return StreamingResponse(
+            rag_stream(payload.text),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+    except Exception as e:
+        logger.exception("/process_stream failed: %s", e)
         raise HTTPException(status_code=400, detail=str(e))

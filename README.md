@@ -92,6 +92,65 @@ curl -X POST http://localhost:8000/process \
   -d '{"text":"Wat is er besproken over vuilnis?"}'
 ```
 
+#### Streaming API (NDJSON)
+For incremental tokens, use the streaming endpoint which emits NDJSON lines:
+```bash
+curl -N -X POST http://localhost:8000/process_stream \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Wat is er besproken over vuilnis?"}'
+```
+
+Behavior:
+- Each line is a JSON object ending with a newline
+- Lines look like `{"delta":"..."}` for partial content
+- The last line is `{"event":"done"}`
+
+Minimal JavaScript client example:
+```javascript
+const res = await fetch("http://localhost:8000/process_stream", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ text: "Wat is er besproken over vuilnis?" })
+});
+const reader = res.body.getReader();
+const decoder = new TextDecoder();
+while (true) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  const chunk = decoder.decode(value, { stream: true });
+  for (const line of chunk.split("\n")) {
+    if (!line.trim()) continue;
+    const evt = JSON.parse(line);
+    if (evt.delta) process.stdout.write(evt.delta);
+    if (evt.event === "done") console.log("\n[stream done]");
+  }
+}
+```
+
+Minimal Python client example (async):
+```python
+import asyncio, json
+import httpx
+
+async def main():
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream(
+            "POST",
+            "http://localhost:8000/process_stream",
+            json={"text": "Wat is er besproken over vuilnis?"},
+        ) as r:
+            async for line in r.aiter_lines():
+                if not line:
+                    continue
+                evt = json.loads(line)
+                if "delta" in evt:
+                    print(evt["delta"], end="", flush=True)
+                if evt.get("event") == "done":
+                    print("\n[stream done]")
+
+asyncio.run(main())
+```
+
 ### Notebooks
 - `docs_to_solr.ipynb`: step-by-step Solr ingestion and KNN search
 
