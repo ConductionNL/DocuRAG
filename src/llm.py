@@ -7,6 +7,12 @@ from pathlib import Path
 from pydantic import BaseModel
 import json
 from dotenv import load_dotenv
+import time
+import random
+import asyncio
+import httpx
+import socket
+import concurrent.futures as futures
 
 load_dotenv()
 
@@ -23,6 +29,133 @@ HISTORY_LENGTH = 5
 # See memory: default should be 'llama-v3p3-70b-instruct'
 LLM_NAME = os.getenv("LLM_NAME") or "llama-v3p3-70b-instruct"
 logger.info(f"LLM_NAME: {LLM_NAME}")
+
+
+# Timeouts and retry configuration (env-overridable)
+def _get_float_env(name: str, default_value: float) -> float:
+    try:
+        return float(os.getenv(name, str(default_value)))
+    except Exception:
+        return default_value
+
+
+def _get_int_env(name: str, default_value: int) -> int:
+    try:
+        return int(os.getenv(name, str(default_value)))
+    except Exception:
+        return default_value
+
+
+LLM_TIMEOUT_S: float = _get_float_env("LLM_TIMEOUT_S", 60.0)
+LLM_MAX_RETRIES: int = _get_int_env("LLM_MAX_RETRIES", 2)
+LLM_BACKOFF_BASE_S: float = _get_float_env("LLM_BACKOFF_BASE_S", 0.75)
+LLM_STREAM_TIMEOUT_S: float = _get_float_env("LLM_STREAM_TIMEOUT_S", 90.0)
+LLM_STREAM_IDLE_TIMEOUT_S: float = _get_float_env("LLM_STREAM_IDLE_TIMEOUT_S", 20.0)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    # Common transient classes from httpx and network layers
+    retryable_httpx = (
+        httpx.TimeoutException,
+        httpx.ConnectError,
+        httpx.ReadError,
+        httpx.RemoteProtocolError,
+        httpx.WriteError,
+        httpx.TransportError,
+    )
+    if isinstance(exc, retryable_httpx):
+        return True
+    # Generic timeout types
+    if isinstance(
+        exc, (TimeoutError, asyncio.TimeoutError, futures.TimeoutError, socket.timeout)
+    ):
+        return True
+    # If the exception exposes an HTTP status code, decide based on it
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and (status == 408 or status == 429 or status >= 500):
+        return True
+    # Heuristic check by message text
+    msg = str(exc).lower()
+    for token in [
+        "timeout",
+        "timed out",
+        "connection reset",
+        "temporarily unavailable",
+        "server error",
+        "too many requests",
+        "rate limit",
+    ]:
+        if token in msg:
+            return True
+    return False
+
+
+def _backoff_delay_s(
+    attempt_index_one_based: int,
+    base_s: float = LLM_BACKOFF_BASE_S,
+    cap_s: float = 10.0,
+) -> float:
+    # Exponential backoff with jitter
+    expo = base_s * (2 ** (attempt_index_one_based - 1))
+    jitter = expo * (0.5 + random.random())
+    return min(cap_s, jitter)
+
+
+def _run_with_retries(callable_fn):
+    last_exc: Exception | None = None
+    for attempt in range(LLM_MAX_RETRIES + 1):
+        try:
+            logger.info("llm request attempt %d/%d", attempt + 1, LLM_MAX_RETRIES + 1)
+            return callable_fn()
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            should = _is_retryable(exc)
+            if attempt >= LLM_MAX_RETRIES or not should:
+                break
+            delay = _backoff_delay_s(attempt + 1)
+            logger.warning(
+                "LLM call failed (attempt %s/%s): %s; retrying in %.2fs",
+                attempt + 1,
+                LLM_MAX_RETRIES + 1,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
+def _call_with_deadline_sync(callable_fn, timeout_s: float):
+    """Run a blocking callable with a wall-clock deadline using a thread.
+
+    We avoid blocking on shutdown if the work exceeds the deadline to ensure the caller
+    does not wait longer than timeout_s. The underlying task may still finish in the
+    background; we proactively shutdown the executor without waiting.
+    """
+    executor = futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="llm-call")
+    future = executor.submit(callable_fn)
+    try:
+        return future.result(timeout=timeout_s)
+    except futures.TimeoutError:
+        # Do not block; allow thread to finish in background.
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        raise
+    except Exception:
+        # Ensure executor is torn down quickly on other errors too.
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        raise
+    finally:
+        # Fast shutdown if already completed.
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
 
 
 class Source(BaseModel):
@@ -128,20 +261,25 @@ def classify_follow_up(
         "- Return false when the query introduces a new subject or can be answered independently without the previous context."
     )
 
-    response = llm.chat.completions.create(
-        messages=[
-            {"role": "system", "content": classifier_system},
-            {"role": "user", "content": classifier_user},
-        ],
-        temperature=0,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "FollowUpDecision",
-                "schema": FollowUpDecision.model_json_schema(),
-                "strict": True,
-            },
-        },
+    response = _run_with_retries(
+        lambda: _call_with_deadline_sync(
+            lambda: llm.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": classifier_system},
+                    {"role": "user", "content": classifier_user},
+                ],
+                temperature=0,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "FollowUpDecision",
+                        "schema": FollowUpDecision.model_json_schema(),
+                        "strict": True,
+                    },
+                },
+            ),
+            LLM_TIMEOUT_S,
+        )
     )
     content = response.choices[0].message.content or "{}"
     try:
@@ -164,31 +302,38 @@ def get_llm_response(user_message: str, fireworks_api_key: str | None = None) ->
         api_key=fireworks_api_key,
         perf_metrics_in_response=True,
     )
-    response = llm.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": user_message,
-            },
-        ],
-        temperature=0,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "Result",
-                "schema": Result.model_json_schema(),
-                "strict": True,
-            },
-        },
+    t0 = time.monotonic()
+    response = _run_with_retries(
+        lambda: _call_with_deadline_sync(
+            lambda: llm.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT,
+                    },
+                    {
+                        "role": "user",
+                        "content": user_message,
+                    },
+                ],
+                temperature=0,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "Result",
+                        "schema": Result.model_json_schema(),
+                        "strict": True,
+                    },
+                },
+            ),
+            LLM_TIMEOUT_S,
+        )
     )
     # log metrics to pinpoint where time is spent
     perf = getattr(response, "perf_metrics", None)
     if perf:
         logger.info(f"fireworks perf: {perf}")
+    logger.info("llm non-streaming duration: %.2fs", time.monotonic() - t0)
     content = response.choices[0].message.content or ""
     return content
 
@@ -253,48 +398,138 @@ def stream_llm_response(
 async def astream_llm_response(
     user_message: str, fireworks_api_key: str | None = None, print_stream: bool = True
 ):
-    """Async generator that yields NDJSON lines with incremental content under 'delta'."""
+    """Async generator that yields NDJSON lines with incremental content under 'delta',
+    with overall and idle timeouts plus pre-start retries.
+    """
     llm = LLM(
         model=LLM_NAME,
         deployment_type="serverless",
         api_key=fireworks_api_key,
     )
-    stream = await llm.chat.completions.acreate(
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": user_message,
-            },
-        ],
-        temperature=0,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "Result",
-                "schema": Result.model_json_schema(),
-                "strict": True,
-            },
-        },
-        stream=True,
-    )
 
-    async for chunk in stream:
+    prestart_retries = LLM_MAX_RETRIES
+
+    for attempt in range(prestart_retries + 1):
+        logger.info(
+            "llm stream request attempt %d/%d",
+            attempt + 1,
+            prestart_retries + 1,
+        )
         try:
-            delta = chunk.choices[0].delta
-            piece = getattr(delta, "content", None)
-        except Exception:
-            piece = None
-        if piece:
-            if print_stream:
-                print(piece, end="", flush=True)
-            yield json.dumps({"delta": piece}) + "\n"
+            stream = await llm.chat.completions.acreate(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT,
+                    },
+                    {
+                        "role": "user",
+                        "content": user_message,
+                    },
+                ],
+                temperature=0,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "Result",
+                        "schema": Result.model_json_schema(),
+                        "strict": True,
+                    },
+                },
+                stream=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if attempt < prestart_retries and _is_retryable(exc):
+                delay = _backoff_delay_s(attempt + 1)
+                logger.warning(
+                    "LLM stream creation failed (attempt %s/%s): %s; retrying in %.2fs",
+                    attempt + 1,
+                    prestart_retries + 1,
+                    exc,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            yield json.dumps({"event": "error", "message": str(exc)}) + "\n"
+            return
 
-    if print_stream:
-        print()
+        start_time = time.monotonic()
+        got_any_chunk = False
+
+        while True:
+            elapsed = time.monotonic() - start_time
+            remaining_overall = max(0.0, LLM_STREAM_TIMEOUT_S - elapsed)
+            if remaining_overall <= 0.0:
+                yield json.dumps(
+                    {
+                        "event": "timeout",
+                        "type": "overall",
+                        "message": "LLM stream exceeded overall deadline",
+                    }
+                ) + "\n"
+                return
+
+            next_timeout = min(LLM_STREAM_IDLE_TIMEOUT_S, remaining_overall)
+            try:
+                chunk = await asyncio.wait_for(stream.__anext__(), timeout=next_timeout)
+            except asyncio.TimeoutError:
+                if not got_any_chunk and attempt < prestart_retries:
+                    # Consider as pre-start stall and retry establishing the stream
+                    delay = _backoff_delay_s(attempt + 1)
+                    logger.warning(
+                        "LLM stream idle before first token (attempt %s/%s); retrying in %.2fs",
+                        attempt + 1,
+                        prestart_retries + 1,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    break
+                # Idle timeout after streaming started (or no retries left)
+                yield json.dumps(
+                    {
+                        "event": "timeout",
+                        "type": "idle",
+                        "message": "No tokens received within idle timeout",
+                    }
+                ) + "\n"
+                return
+            except StopAsyncIteration:
+                # Proper end of stream
+                if print_stream:
+                    print()
+                yield json.dumps({"event": "done"}) + "\n"
+                return
+            except Exception as exc:  # noqa: BLE001
+                if (
+                    not got_any_chunk
+                    and attempt < prestart_retries
+                    and _is_retryable(exc)
+                ):
+                    delay = _backoff_delay_s(attempt + 1)
+                    logger.warning(
+                        "LLM stream failed before first token (attempt %s/%s): %s; retrying in %.2fs",
+                        attempt + 1,
+                        prestart_retries + 1,
+                        exc,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    break
+                yield json.dumps({"event": "error", "message": str(exc)}) + "\n"
+                return
+
+            # Normal token chunk received
+            try:
+                delta = chunk.choices[0].delta
+                piece = getattr(delta, "content", None)
+            except Exception:
+                piece = None
+            if piece:
+                if print_stream:
+                    print(piece, end="", flush=True)
+                got_any_chunk = True
+                yield json.dumps({"delta": piece}) + "\n"
+        # If we broke out of inner loop to retry, continue to next attempt
 
 
 def parse_llm_response(llm_response: str) -> Result:

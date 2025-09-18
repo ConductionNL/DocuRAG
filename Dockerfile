@@ -22,9 +22,4 @@ COPY . .
 
 EXPOSE 8000
 
-ENV LOG_LEVEL=INFO \
-    TOP_K=5 \
-    MODEL_NAME=intfloat/multilingual-e5-small \
-    LLM_NAME=llama-v3p3-70b-instruct
-
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
