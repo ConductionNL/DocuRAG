@@ -1,5 +1,9 @@
+# Use CPU-only PyTorch wheels to keep Heroku slug size under 500MB
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 numpy
 sentence-transformers
+torch==2.4.0
 pysolr
 fireworks-ai
 pydantic>=2
