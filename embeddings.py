@@ -3,6 +3,7 @@ from typing import List, Dict
 from sentence_transformers import SentenceTransformer
 import logging
 from dotenv import load_dotenv
+from threading import Lock
 
 load_dotenv()
 
@@ -13,6 +14,28 @@ os.environ["MKL_NUM_THREADS"] = os.environ["OMP_NUM_THREADS"]
 MODEL_NAME = str(os.getenv("MODEL_NAME"))
 
 logger = logging.getLogger(__name__)
+
+
+# --- Per-process cache for SentenceTransformer models ---
+_MODEL_CACHE: dict[str, SentenceTransformer] = {}
+_MODEL_CACHE_LOCK = Lock()
+
+
+def get_sentence_transformer(model_name: str) -> SentenceTransformer:
+    """Return a cached SentenceTransformer instance for the given model name.
+
+    Ensures the model is loaded once per process/worker. Thread-safe double-checked
+    locking avoids repeated loads under concurrent requests.
+    """
+    model = _MODEL_CACHE.get(model_name)
+    if model is not None:
+        return model
+    with _MODEL_CACHE_LOCK:
+        model = _MODEL_CACHE.get(model_name)
+        if model is None:
+            model = SentenceTransformer(model_name, device="cpu")
+            _MODEL_CACHE[model_name] = model
+    return model
 
 
 def normalize_text(d: Dict) -> str:
@@ -87,7 +110,7 @@ def encode_cpu(texts: List[str], model_name=MODEL_NAME, batch_size=16):
     @param batch_size: Batch size used during encoding.
     @return: NumPy array of shape (n_samples, n_dims) with dtype float32.
     """
-    model = SentenceTransformer(model_name, device="cpu")
+    model = get_sentence_transformer(model_name)
     # normalize_embeddings=True -> cosine-ready
     return model.encode(
         texts,
