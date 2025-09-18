@@ -2,6 +2,9 @@ import os, json, hashlib
 from typing import List, Dict
 from sentence_transformers import SentenceTransformer
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- CPU perf knobs (adjust to your cores) ---
 os.environ["OMP_NUM_THREADS"] = str(os.cpu_count() or 4)

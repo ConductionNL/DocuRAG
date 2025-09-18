@@ -5,3 +5,7 @@ fireworks-ai
 pydantic>=2
 pyyaml
 fastapi
+uvicorn
+python-dotenv
+httpx
+gunicorn

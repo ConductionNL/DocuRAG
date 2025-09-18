@@ -3,12 +3,17 @@ from llm import (
     load_llm_message,
     get_llm_response,
     parse_llm_response,
-    astream_llm_ndjson,
+    astream_llm_response,
+    classify_follow_up,
 )
 import os
 import pysolr
 from dotenv import load_dotenv
 import logging
+import re
+import json
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional
 
 load_dotenv()
 
@@ -19,6 +24,29 @@ TOP_K = os.getenv("TOP_K")
 MODEL_NAME = os.getenv("MODEL_NAME")
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SessionState:
+    last_query: Optional[str] = None
+    last_answer: Optional[str] = None
+    retrieved_docs: List[Dict] = field(default_factory=list)
+    history: List[Dict] = field(default_factory=list)  # {"user": str, "assistant": str}
+
+
+def is_follow_up_llm(user_input: str, session: SessionState) -> bool:
+    """Decide via LLM if the input is a follow-up to the previous turn/sources."""
+    try:
+        return classify_follow_up(
+            current_query=user_input,
+            last_query=session.last_query,
+            prior_sources=session.retrieved_docs,
+            last_answer=session.last_answer,
+        )
+    except Exception:
+        # Be conservative: default to starting a new topic if classifier fails
+        logger.exception("Follow-up classifier failed; defaulting to new topic")
+        return False
 
 
 def augmented_generation(retrieved_docs: list[dict], query: str) -> str:
@@ -38,6 +66,51 @@ def augmented_generation(retrieved_docs: list[dict], query: str) -> str:
     logger.debug("Parsing LLM response")
     parsed_llm_response = parse_llm_response(llm_response)
     return parsed_llm_response
+
+
+def _get_solr_client():
+    return pysolr.Solr(
+        SOLR_RAG_URL, always_commit=True, timeout=10, auth=(USERNAME, PASSWORD)
+    )
+
+
+def _prepare_session_prompt(user_input: str, session: SessionState, solr=None):
+    """Shared logic to decide follow-up vs new topic, prepare docs and prompt.
+
+    Returns (docs, llm_message, follow_up).
+    """
+    solr_rag = solr or _get_solr_client()
+
+    follow_up = False
+    if session.last_query and session.retrieved_docs:
+        follow_up = is_follow_up_llm(user_input, session)
+
+    if follow_up:
+        logger.info("Using retrieved docs for follow-up")
+        docs = session.retrieved_docs
+        history = session.history
+    else:
+        logger.info("Searching Solr for new topic")
+        logger.info("Searching Solr for top_k=%s", TOP_K)
+        docs = search_solr(user_input, solr_rag, top_k=TOP_K, model_name=MODEL_NAME)
+        logger.info("Retrieved %s docs from Solr", len(docs))
+        session.retrieved_docs = list(docs)
+        session.history = []
+        history = []
+
+    llm_message = load_llm_message(
+        docs, user_input, history=history if follow_up else None
+    )
+    logger.info(f"LLM message: {llm_message}")
+    return docs, llm_message, follow_up
+
+
+def _update_session_after_answer(
+    session: SessionState, user_input: str, answer_text: str
+):
+    session.last_query = user_input
+    session.last_answer = answer_text
+    session.history.append({"user": user_input, "assistant": answer_text})
 
 
 def rag(user_input: str) -> str:
@@ -75,8 +148,44 @@ async def rag_stream(user_input: str):
     )
     logger.info("Retrieved %s docs from Solr", len(retrieved_docs))
     llm_message = load_llm_message(retrieved_docs, user_input)
-    async for line in astream_llm_ndjson(llm_message):
+    async for line in astream_llm_response(llm_message):
         yield line
+
+
+def rag_with_session(user_input: str, session: SessionState) -> dict:
+    """Session-aware RAG: reuse prior sources for follow-ups, retrieve for new topics."""
+    solr_rag = _get_solr_client()
+    _, llm_message, _ = _prepare_session_prompt(user_input, session, solr=solr_rag)
+    llm_response = get_llm_response(llm_message)
+    parsed = parse_llm_response(llm_response)
+    _update_session_after_answer(session, user_input, parsed.get("answer", ""))
+    return parsed
+
+
+async def rag_stream_with_session(user_input: str, session: SessionState):
+    """Session-aware streaming RAG with NDJSON output."""
+    solr_rag = _get_solr_client()
+    _, llm_message, _ = _prepare_session_prompt(user_input, session, solr=solr_rag)
+
+    buffer_parts: list[str] = []
+    async for line in astream_llm_response(llm_message):
+        try:
+            obj = json.loads(line)
+            delta = obj.get("delta")
+            if delta:
+                buffer_parts.append(delta)
+        except Exception:
+            buffer_parts.append(line)
+        yield line
+
+    full = "".join(buffer_parts)
+    try:
+        parsed = parse_llm_response(full)
+        answer_text = parsed.get("answer", full)
+    except Exception:
+        answer_text = full
+
+    _update_session_after_answer(session, user_input, answer_text)
 
 
 if __name__ == "__main__":
