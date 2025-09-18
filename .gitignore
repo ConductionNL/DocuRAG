@@ -5,5 +5,5 @@ __pycache__/
 data/woo_docs.json
 
 # Local notebooks (large/untracked)
-docs/DocuSearch.ipynb
-docs/load_solr_objts.ipynb
+notebooks/DocuSearch.ipynb
+notebooks/load_solr_objts.ipynb
