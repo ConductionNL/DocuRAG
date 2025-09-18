@@ -1,4 +1,4 @@
-# Use CPU-only PyTorch wheels to keep Heroku slug size under 500MB
+# Use CPU-only PyTorch wheels (smaller install size)
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 numpy
@@ -12,4 +12,3 @@ fastapi
 uvicorn
 python-dotenv
 httpx
-gunicorn

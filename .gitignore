@@ -1,4 +1,9 @@
 .env
-woo_idmap.json
-woo_meta.json
-woo.faiss
+__pycache__/
+
+# Data files
+data/woo_docs.json
+
+# Local notebooks (large/untracked)
+docs/DocuSearch.ipynb
+docs/load_solr_objts.ipynb

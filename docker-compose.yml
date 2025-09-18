@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  api:
+    build: .
+    image: docusearch-api:latest
+    container_name: docusearch-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Logs and app tuning
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TOP_K: ${TOP_K:-5}
+      MODEL_NAME: ${MODEL_NAME:-intfloat/multilingual-e5-small}
+      LLM_NAME: ${LLM_NAME:-llama-v3p3-70b-instruct}
+      # External services and credentials
+      SOLR_RAG_URL: ${SOLR_RAG_URL}
+      SOLR_USER: ${SOLR_USER}
+      SOLR_PASSWORD: ${SOLR_PASSWORD}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY}
+    volumes:
+      - ./:/app:ro
+      - huggingface-cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

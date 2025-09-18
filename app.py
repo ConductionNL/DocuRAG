@@ -2,7 +2,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
-from RAG import rag, rag_stream, rag_with_session, rag_stream_with_session, SessionState
+from src.rag import (
+    rag,
+    rag_stream,
+    rag_with_session,
+    rag_stream_with_session,
+    SessionState,
+)
 import logging
 import os
 
@@ -19,6 +25,10 @@ app = FastAPI(title="DocuRAG")
 class In(BaseModel):
     text: str
     session_id: Optional[str] = None
+    fireworks_api_key: str
+    solr_url: str
+    solr_username: str
+    solr_password: str
 
 
 class Out(BaseModel):
@@ -32,9 +42,22 @@ def process_endpoint(payload: In):
         if payload.session_id:
             state = SESSIONS.setdefault(payload.session_id, SessionState())
             logger.info(f"Session state: {state.last_query}")
-            result = rag_with_session(payload.text, state)
+            result = rag_with_session(
+                payload.text,
+                state,
+                solr_url=payload.solr_url,
+                solr_username=payload.solr_username,
+                solr_password=payload.solr_password,
+                fireworks_api_key=payload.fireworks_api_key,
+            )
         else:
-            result = rag(payload.text)
+            result = rag(
+                payload.text,
+                solr_url=payload.solr_url,
+                solr_username=payload.solr_username,
+                solr_password=payload.solr_password,
+                fireworks_api_key=payload.fireworks_api_key,
+            )
         return Out(answer=result["answer"], sources=result["sources"])
     except Exception as e:
         logger.exception("/process failed: %s", e)
@@ -48,9 +71,22 @@ async def process_stream_endpoint(payload: In):
         if payload.session_id:
             state = SESSIONS.setdefault(payload.session_id, SessionState())
             logger.info(f"Session state: {state.last_query}")
-            gen = rag_stream_with_session(payload.text, state)
+            gen = rag_stream_with_session(
+                payload.text,
+                state,
+                solr_url=payload.solr_url,
+                solr_username=payload.solr_username,
+                solr_password=payload.solr_password,
+                fireworks_api_key=payload.fireworks_api_key,
+            )
         else:
-            gen = rag_stream(payload.text)
+            gen = rag_stream(
+                payload.text,
+                solr_url=payload.solr_url,
+                solr_username=payload.solr_username,
+                solr_password=payload.solr_password,
+                fireworks_api_key=payload.fireworks_api_key,
+            )
         return StreamingResponse(
             gen,
             media_type="application/x-ndjson",

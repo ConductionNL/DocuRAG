@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docusearch"
+version = "0.1.0"
+description = "RAG over WOO documents using Solr and Fireworks"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Conduction" }]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+

@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/root/.cache/huggingface
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+ENV LOG_LEVEL=INFO \
+    TOP_K=5 \
+    MODEL_NAME=intfloat/multilingual-e5-small \
+    LLM_NAME=llama-v3p3-70b-instruct
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

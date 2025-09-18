@@ -2,7 +2,7 @@
 
 This repo provides Retrieval-Augmented Generation (RAG) over WOO documents using Apache Solr for vector search. It retrieves the most relevant chunks from Solr and lets an LLM generate the final answer.
 
-See the the Solr demo with a small testset in `docs_to_solr.ipynb`
+See the Solr demo with a small testset in `notebooks/docs_to_solr.ipynb`.
 
 ### Setup
 - Python 3.10+
@@ -16,80 +16,54 @@ If you run in Jupyter, also install ipywidgets for nicer progress bars:
 pip install ipywidgets
 ```
 
-### Environment
-Set the following in your environment
+### Configuration (no secrets in env)
+- Credentials are now passed per request to the API or function calls. Do not store Solr or Fireworks secrets in `.env`.
+- Optional environment variables for non-secrets:
 ```
-SOLR_RAG_URL=
-SOLR_USER=
-SOLR_PASSWORD=
-FIREWORKS_API_KEY=
+LOG_LEVEL=INFO
 TOP_K=5
 MODEL_NAME=intfloat/multilingual-e5-small
+LLM_NAME=llama-v3p3-70b-instruct
 ```
 
-### Data
-- Example corpus: `woo_docs.json`
-- Index the corpus into Solr using the `docs_to_solr.ipynb` notebook (creates vector field and documents)
+Prompts are loaded from `src/prompts/prompts.yaml`. The default chat model is `llama-v3p3-70b-instruct` if `LLM_NAME` is not set.
 
-### 1) RAG over Solr (recommended)
-From Python:
+### 1) RAG over Solr from Python
+From Python (run from repo root):
 ```python
-from RAG import rag
+from src.rag import rag
 
-QUESTION = "Wat is er besproken over vuilnis?"
-result = rag(QUESTION)
+result = rag(
+    "Wat is er besproken over vuilnis?",
+    solr_url="http://<solr-host>:8983/solr/docuRAG",
+    solr_username="<username>",
+    solr_password="<password>",
+    fireworks_api_key="<fireworks_api_key>",
+)
 print(result["answer"])        # Final answer
 print(result["sources"])       # Attributed sources
 ```
 
-Via CLI:
-```bash
-python RAG.py "Wat is er besproken over vuilnis?"
-```
-
 Notes:
-- `rag()` queries Solr (KNN over the `emb` field) to retrieve context and then calls the LLM using prompts from `prompts.yaml` and the model `llama-v3p3-70b-instruct` via Fireworks.
+- Retrieval queries Solr (KNN over the `emb` field) and then calls the LLM using prompts from `src/prompts/prompts.yaml`.
 
-### 2) Direct semantic search in Solr
-`embeddings.search_solr` performs KNN over a vector field in Solr using the configured embedding model.
-
-Prerequisites:
-- A running Solr instance with a core/collection (e.g., `docuRAG`) that contains:
-  - A dense vector field (e.g., `emb`) configured for KNN
-  - Text/metadata fields such as `id`, `doc_id`, `chunk_id`, `text`, `municipality`, `date`, `title`, `section`
-
-Example usage:
-```python
-import os
-import pysolr
-from embeddings import search_solr
-
-solr = pysolr.Solr(
-    os.getenv("SOLR_RAG_URL"),
-    always_commit=True,
-    timeout=10,
-    auth=(os.getenv("SOLR_USER"), os.getenv("SOLR_PASSWORD")),
-)
-
-query = "Wat zegt het over verkeersveiligheid op de Vestdijk?"
-results = search_solr(query, solr, top_k=5)
-for r in results:
-    print(r)
-```
-
-For a complete walkthrough on indexing documents into Solr and running a vector search, open the notebook `docs_to_solr.ipynb`.
-
-### 3) REST API (optional)
-Run the FastAPI server:
+### 2) REST API
+Run the FastAPI server (from repo root):
 ```bash
-uvicorn app:app --reload
+uvicorn app:app --reload --app-dir .
 ```
 
-Call the endpoint:
+Call the endpoint (credentials in the request body):
 ```bash
 curl -X POST http://localhost:8000/process \
   -H "Content-Type: application/json" \
-  -d '{"text":"Wat is er besproken over vuilnis?"}'
+  -d '{
+    "text": "Wat is er besproken over vuilnis?",
+    "fireworks_api_key": "<fireworks_api_key>",
+    "solr_url": "http://<solr-host>:8983/solr/docuRAG",
+    "solr_username": "<username>",
+    "solr_password": "<password>"
+  }'
 ```
 
 #### Streaming API (NDJSON)
@@ -97,7 +71,13 @@ For incremental tokens, use the streaming endpoint which emits NDJSON lines:
 ```bash
 curl -N -X POST http://localhost:8000/process_stream \
   -H "Content-Type: application/json" \
-  -d '{"text":"Wat is er besproken over vuilnis?"}'
+  -d '{
+    "text": "Wat is er besproken over vuilnis?",
+    "fireworks_api_key": "<fireworks_api_key>",
+    "solr_url": "http://<solr-host>:8983/solr/docuRAG",
+    "solr_username": "<username>",
+    "solr_password": "<password>"
+  }'
 ```
 
 Behavior:
@@ -110,7 +90,13 @@ Minimal JavaScript client example:
 const res = await fetch("http://localhost:8000/process_stream", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ text: "Wat is er besproken over vuilnis?" })
+  body: JSON.stringify({
+    text: "Wat is er besproken over vuilnis?",
+    fireworks_api_key: "<fireworks_api_key>",
+    solr_url: "http://<solr-host>:8983/solr/docuRAG",
+    solr_username: "<username>",
+    solr_password: "<password>"
+  })
 });
 const reader = res.body.getReader();
 const decoder = new TextDecoder();
@@ -137,7 +123,13 @@ async def main():
         async with client.stream(
             "POST",
             "http://localhost:8000/process_stream",
-            json={"text": "Wat is er besproken over vuilnis?"},
+            json={
+                "text": "Wat is er besproken over vuilnis?",
+                "fireworks_api_key": "<fireworks_api_key>",
+                "solr_url": "http://<solr-host>:8983/solr/docuRAG",
+                "solr_username": "<username>",
+                "solr_password": "<password>"
+            },
         ) as r:
             async for line in r.aiter_lines():
                 if not line:
@@ -151,12 +143,39 @@ async def main():
 asyncio.run(main())
 ```
 
+### 3) Docker
+Build and run the API server with Docker:
+```bash
+docker build -t docusearch-api .
+docker run --rm -p 8000:8000 docusearch-api
+```
+
+Or with Docker Compose (also mounts a Hugging Face cache volume):
+```bash
+docker compose up --build
+```
+
+Then call the API as shown above. Credentials are always provided in the request payload; they are not read from container environment variables.
+
 ### Notebooks
-- `docs_to_solr.ipynb`: step-by-step Solr ingestion and KNN search
+- `notebooks/docs_to_solr.ipynb`: step-by-step Solr ingestion and KNN search
+
+### Repository layout
+```
+app.py                 # FastAPI server
+src/
+  rag.py               # RAG entrypoints (sync + streaming, session-aware variants)
+  llm.py               # Fireworks LLM helpers and JSON parsing
+  embeddings.py        # Solr KNN search utilities
+  prompts/prompts.yaml # Prompt templates
+notebooks/             # Demos and ingestion
+Dockerfile
+docker-compose.yml
+requirements.txt
+```
 
 ### Troubleshooting
 - Ensure Solr is reachable and the `emb` vector field is configured for KNN
-- If embeddings are slow, ensure CPU threading env vars are set (already configured in `embeddings.py`)
-- If LLM calls fail: verify `FIREWORKS_API_KEY` and your network access
-- If the embedding model fails to load, verify `MODEL_NAME` and that model weights can be downloaded
+- If LLM calls fail, verify the Fireworks API key used in your request payload
+- If the embedding model fails to load, verify `MODEL_NAME` and network access for model weights
 
