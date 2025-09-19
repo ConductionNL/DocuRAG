@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HOME=/home/appuser/.cache/huggingface \
     UVICORN_HOST=0.0.0.0 \
-    UVICORN_PORT=8000 \
+    UVICORN_PORT=80 \
     WEB_CONCURRENCY=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
