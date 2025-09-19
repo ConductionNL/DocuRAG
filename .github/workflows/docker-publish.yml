@@ -4,6 +4,7 @@ on:
   push:
     branches: [ "master", "main", "helm" ]
     tags: [ 'v*.*.*' ]
+  workflow_dispatch:
 
 jobs:
   build-and-push:
