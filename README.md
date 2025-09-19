@@ -157,6 +157,40 @@ docker compose up --build
 
 Then call the API as shown above. Credentials are always provided in the request payload; they are not read from container environment variables.
 
+### 4) Container image to GHCR
+
+Login en pushen naar GitHub Container Registry (GHCR):
+```bash
+echo $GITHUB_TOKEN | docker login ghcr.io -u <github_username> --password-stdin
+
+# Build en tag
+docker build -t ghcr.io/<owner_or_org>/docusearch:latest .
+
+# Push
+docker push ghcr.io/<owner_or_org>/docusearch:latest
+```
+
+Of gebruik de meegeleverde GitHub Actions workflow: `.github/workflows/docker-publish.yml`. Deze bouwt en pusht automatisch naar `ghcr.io/<repo_owner>/docusearch` bij een push naar `master/main` of bij tags `v*.*.*`.
+
+### 5) Helm chart deployment
+
+Installeer met Helm (pas repository/tag aan in `values.yaml` of via `--set`):
+```bash
+helm upgrade --install docusearch charts/docusearch \
+  --namespace docusearch --create-namespace \
+  --set image.repository=ghcr.io/<owner_or_org>/docusearch \
+  --set image.tag=latest
+```
+
+Standaard draait de service op poort 8000 in de container en wordt via een ClusterIP service op poort 80 blootgesteld. Ingress kan worden ingeschakeld via `values.yaml` (`ingress.enabled: true`).
+
+### 6) ArgoCD Application
+
+Voorbeeld `deploy/argocd-app.yaml` wijst naar deze repo en het pad `charts/docusearch`. Pas `repoURL`, `image.repository` en `namespace` aan en voeg de applicatie toe in ArgoCD:
+```bash
+kubectl apply -f deploy/argocd-app.yaml
+```
+
 ### Notebooks
 - `notebooks/docs_to_solr.ipynb`: step-by-step Solr ingestion and KNN search
 

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: docusearch
+description: Helm chart for the DocuSearch FastAPI service
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
