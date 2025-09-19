@@ -11,7 +11,7 @@ See the Solr demo with a small testset in `notebooks/docs_to_solr.ipynb`.
 pip install -r requirements.txt
 ```
 
-If you run in Jupyter, also install ipywidgets for nicer progress bars:
+If you run in Jupyter, also install `ipywidgets` for nicer progress bars:
 ```bash
 pip install ipywidgets
 ```
@@ -163,11 +163,11 @@ Login en pushen naar GitHub Container Registry (GHCR):
 ```bash
 echo $GITHUB_TOKEN | docker login ghcr.io -u <github_username> --password-stdin
 
-# Build en tag
-docker build -t ghcr.io/<owner_or_org>/docusearch:latest .
+# Build en tag (DocuRAG)
+docker build -t ghcr.io/<owner_or_org>/docurag:latest .
 
 # Push
-docker push ghcr.io/<owner_or_org>/docusearch:latest
+docker push ghcr.io/<owner_or_org>/docurag:latest
 ```
 
 Of gebruik de meegeleverde GitHub Actions workflow: `.github/workflows/docker-publish.yml`. Deze bouwt en pusht automatisch naar `ghcr.io/<repo_owner>/docusearch` bij een push naar `master/main` of bij tags `v*.*.*`.
@@ -178,7 +178,7 @@ Installeer met Helm (pas repository/tag aan in `values.yaml` of via `--set`):
 ```bash
 helm upgrade --install docusearch charts/docusearch \
   --namespace docusearch --create-namespace \
-  --set image.repository=ghcr.io/<owner_or_org>/docusearch \
+  --set image.repository=ghcr.io/<owner_or_org>/docurag \
   --set image.tag=latest
 ```
 

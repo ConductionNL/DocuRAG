@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/ConductionNL/docusearch
+  repository: ghcr.io/ConductionNL/docurag
   tag: latest
   pullPolicy: IfNotPresent
 
