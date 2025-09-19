@@ -2,7 +2,7 @@ name: Publish Docker image to GHCR
 
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: [ "master", "main", "helm" ]
     tags: [ 'v*.*.*' ]
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/docusearch
+          images: ghcr.io/${{ github.repository_owner }}/docurag
           tags: |
             type=ref,event=branch
             type=ref,event=tag
@@ -49,4 +49,20 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Ensure GHCR package is public (best-effort)
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          echo "Setting visibility=public for ghcr.io/${OWNER}/docurag (best-effort)"
+          sudo apt-get update -y && sudo apt-get install -y --no-install-recommends jq
+          curl -s -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/orgs/${OWNER}/packages?package_type=container | jq -r '.[].name' || true
+          # Try set visibility public via REST; path differs for user vs org packages
+          curl -s -X PATCH -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/orgs/${OWNER}/packages/container/docurag/visibility \
+            -d '{"visibility":"public"}' || true
 
