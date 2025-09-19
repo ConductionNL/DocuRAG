@@ -7,3 +7,4 @@ data/woo_docs.json
 # Local notebooks (large/untracked)
 notebooks/DocuSearch.ipynb
 notebooks/load_solr_objts.ipynb
+
