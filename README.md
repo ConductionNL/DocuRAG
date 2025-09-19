@@ -34,7 +34,7 @@ From Python (run from repo root):
 from src.rag import rag
 
 result = rag(
-    "Wat is er besproken over vuilnis?",
+    "What was discussed about waste?",
     solr_url="http://<solr-host>:8983/solr/docuRAG",
     solr_username="<username>",
     solr_password="<password>",
@@ -58,7 +58,7 @@ Call the endpoint (credentials in the request body):
 curl -X POST http://localhost:8000/process \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "Wat is er besproken over vuilnis?",
+    "text": "What was discussed about waste?",
     "fireworks_api_key": "<fireworks_api_key>",
     "solr_url": "http://<solr-host>:8983/solr/docuRAG",
     "solr_username": "<username>",
@@ -72,7 +72,7 @@ For incremental tokens, use the streaming endpoint which emits NDJSON lines:
 curl -N -X POST http://localhost:8000/process_stream \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "Wat is er besproken over vuilnis?",
+    "text": "What was discussed about waste?",
     "fireworks_api_key": "<fireworks_api_key>",
     "solr_url": "http://<solr-host>:8983/solr/docuRAG",
     "solr_username": "<username>",
@@ -82,8 +82,8 @@ curl -N -X POST http://localhost:8000/process_stream \
 
 Behavior:
 - Each line is a JSON object ending with a newline
-- Lines look like `{"delta":"..."}` for partial content
-- The last line is `{"event":"done"}`
+- Lines look like `{\"delta\":\"...\"}` for partial content
+- The last line is `{\"event\":\"done\"}`
 
 Minimal JavaScript client example:
 ```javascript
@@ -91,7 +91,7 @@ const res = await fetch("http://localhost:8000/process_stream", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    text: "Wat is er besproken over vuilnis?",
+    text: "What was discussed about waste?",
     fireworks_api_key: "<fireworks_api_key>",
     solr_url: "http://<solr-host>:8983/solr/docuRAG",
     solr_username: "<username>",
@@ -159,34 +159,44 @@ Then call the API as shown above. Credentials are always provided in the request
 
 ### 4) Container image to GHCR
 
-Login en pushen naar GitHub Container Registry (GHCR):
+Login and push to GitHub Container Registry (GHCR):
 ```bash
 echo $GITHUB_TOKEN | docker login ghcr.io -u <github_username> --password-stdin
 
-# Build en tag (DocuRAG)
+# Build and tag (DocuRAG)
 docker build -t ghcr.io/<owner_or_org>/docurag:latest .
 
 # Push
 docker push ghcr.io/<owner_or_org>/docurag:latest
 ```
 
-Of gebruik de meegeleverde GitHub Actions workflow: `.github/workflows/docker-publish.yml`. Deze bouwt en pusht automatisch naar `ghcr.io/<repo_owner>/docusearch` bij een push naar `master/main` of bij tags `v*.*.*`.
+Or use the provided GitHub Actions workflow: `.github/workflows/docker-publish.yml`. It builds and pushes automatically to `ghcr.io/<repo_owner>/docurag` on pushes to `master/main/helm` and tags matching `v*.*.*`.
 
 ### 5) Helm chart deployment
 
-Installeer met Helm (pas repository/tag aan in `values.yaml` of via `--set`):
+Install with Helm (override image repo/tag as needed):
 ```bash
 helm upgrade --install docusearch charts/docusearch \
-  --namespace docusearch --create-namespace \
+  --namespace docurag --create-namespace \
   --set image.repository=ghcr.io/<owner_or_org>/docurag \
   --set image.tag=latest
 ```
 
-Standaard draait de service op poort 8000 in de container en wordt via een ClusterIP service op poort 80 blootgesteld. Ingress kan worden ingeschakeld via `values.yaml` (`ingress.enabled: true`).
+The container listens on port 80 and is exposed via a ClusterIP Service on port 80. Ingress can be enabled via `values.yaml` (`ingress.enabled: true`).
+
+### Service name and in-cluster access
+- Release name: `docusearch` → Service: `docusearch-docusearch`
+- Namespace example: `docurag`
+- In-cluster URL: `http://docusearch-docusearch.docurag.svc` (port 80)
+- Quick smoke test from another namespace (e.g., `test-mcc`):
+```bash
+kubectl -n test-mcc run curl --rm -it --image=curlimages/curl:8.10.1 -- \
+  curl -sf http://docusearch-docusearch.docurag.svc/openapi.json
+```
 
 ### 6) ArgoCD Application
 
-Voorbeeld `deploy/argocd-app.yaml` wijst naar deze repo en het pad `charts/docusearch`. Pas `repoURL`, `image.repository` en `namespace` aan en voeg de applicatie toe in ArgoCD:
+Example `deploy/argocd-app.yaml` points to this repo and the path `charts/docusearch`. Adjust `repoURL`, `image.repository` and `namespace` and add the application to ArgoCD:
 ```bash
 kubectl apply -f deploy/argocd-app.yaml
 ```
