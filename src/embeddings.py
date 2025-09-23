@@ -1,9 +1,11 @@
-import os, json, hashlib
-from typing import List, Dict
-from sentence_transformers import SentenceTransformer
+import hashlib
+import json
 import logging
+import os
 from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
 from threading import Lock
+from typing import Dict, List
 
 load_dotenv()
 
@@ -135,7 +137,6 @@ def search_solr(query: str, solr, top_k=5, model_name=MODEL_NAME):
 
 
 if __name__ == "__main__":
-    import sys
 
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
