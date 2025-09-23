@@ -10,9 +10,32 @@ readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Conduction" }]
 
+# Runtime dependencies
+dependencies = [
+    "sentence-transformers",
+    "torch==2.4.0",
+    "pysolr",
+    "fireworks-ai",
+    "pydantic>=2",
+    "pyyaml",
+    "fastapi",
+    "uvicorn",
+    "python-dotenv",
+    "httpx",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+# Configure uv to pull torch from the CPU wheels index only
+[[tool.uv.index]]
+name = "torch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "torch-cpu" }
 
