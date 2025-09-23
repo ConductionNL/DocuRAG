@@ -6,14 +6,18 @@ See the Solr demo with a small testset in `notebooks/docs_to_solr.ipynb`.
 
 ### Setup
 - Python 3.10+
-- Install dependencies:
+- Install dependencies (with `uv`):
 ```bash
-pip install -r requirements.txt
+# install uv if needed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# create venv and install project deps
+uv sync
 ```
 
 If you run in Jupyter, also install `ipywidgets` for nicer progress bars:
 ```bash
-pip install ipywidgets
+uv add ipywidgets
 ```
 
 ### Configuration (no secrets in env)
@@ -50,7 +54,7 @@ Notes:
 ### 2) REST API
 Run the FastAPI server (from repo root):
 ```bash
-uvicorn app:app --reload --app-dir .
+uv run -- uvicorn app:app --reload --app-dir .
 ```
 
 Call the endpoint (credentials in the request body):
@@ -215,7 +219,7 @@ src/
 notebooks/             # Demos and ingestion
 Dockerfile
 docker-compose.yml
-requirements.txt
+pyproject.toml
 ```
 
 ### Troubleshooting
