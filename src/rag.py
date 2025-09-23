@@ -10,7 +10,6 @@ import os
 import pysolr
 from dotenv import load_dotenv
 import logging
-import re
 import json
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
