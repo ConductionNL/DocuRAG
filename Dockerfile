@@ -7,7 +7,9 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    HF_HOME=/home/appuser/.cache/huggingface \
+    XDG_CACHE_HOME=/tmp/.cache \
+    UV_CACHE_DIR=/tmp/.cache/uv \
+    HF_HOME=/tmp/.cache/huggingface \
     UVICORN_HOST=0.0.0.0 \
     UVICORN_PORT=80 \
     WEB_CONCURRENCY=1
@@ -16,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     curl \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
