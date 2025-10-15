@@ -34,6 +34,12 @@ spec:
             capabilities:
               add:
                 - NET_BIND_SERVICE
+{{- if .Values.command }}
+          command: {{ toYaml .Values.command | nindent 10 }}
+{{- end }}
+{{- if .Values.args }}
+          args: {{ toYaml .Values.args | nindent 10 }}
+{{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.targetPort }}

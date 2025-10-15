@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/ConductionNL/docurag
+  repository: ghcr.io/conductionnl/docurag
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -10,7 +10,7 @@ imagePullSecrets: [] # e.g. - name: ghcr
 service:
   type: ClusterIP
   port: 80
-  targetPort: 80
+  targetPort: 8000
 
 env:
   LOG_LEVEL: INFO
@@ -18,7 +18,22 @@ env:
   MODEL_NAME: intfloat/multilingual-e5-small
   LLM_NAME: llama-v3p3-70b-instruct
   WEB_CONCURRENCY: "1"
-  UVICORN_PORT: "80"
+  UVICORN_PORT: "8000"
+  XDG_CACHE_HOME: /tmp/uvcache
+  UV_CACHE_DIR: /tmp/uvcache/uv
+  HF_HOME: /tmp/uvcache/huggingface
+  HOME: /tmp
+
+# Default runtime: use uv to run uvicorn without loading the project (avoids egg-info writes)
+command:
+  - sh
+  - -lc
+args:
+  - >-
+    uv run --no-project -- uvicorn app:app
+    --host ${UVICORN_HOST:-0.0.0.0}
+    --port ${UVICORN_PORT:-80}
+    --workers ${WEB_CONCURRENCY:-1}
 
 resources: {}
 
